@@ -1,0 +1,81 @@
+name: Build, push and deploy app in AWS ECS
+description: Build and push Docker images with Buildx
+author: alesson.viana@gmail.com
+branding:
+  icon: 'anchor'
+  color: 'blue'
+inputs:
+  aws_region:
+    description: 'AWS region'
+    required: true
+  ecs_cluster:
+    description: 'ECS cluster name'
+    required: true
+  service:
+    description: 'ECS service name'
+    required: true
+  aws-access-key-id:
+    description: 'Pass was access key id'
+    required: true
+  aws-secret-access-key: 
+    description: 'Pass was secret access key'
+    required: true
+
+runs:  
+  using: "composite"
+  steps:
+    - name: Checkout
+      uses: actions/checkout@v4
+
+    - name: Configure AWS credentials
+      uses: aws-actions/configure-aws-credentials@v4
+      with:
+        aws-region: ${{ inputs.aws_region }}
+        aws-access-key-id: ${{ inputs.aws-access-key-id }}
+        aws-secret-access-key: ${{ inputs.aws-secret-access-key }}
+
+    - name: Login to Amazon ECR
+      id: login-ecr
+      uses: aws-actions/amazon-ecr-login@v1
+
+    - name: Set up Docker Buildx
+      id: setup-buildx
+      uses: docker/setup-buildx-action@v1
+
+    - name: Cache Docker layers
+      uses: actions/cache@v2
+      with:
+        path: /tmp/.buildx-cache
+        key: ${{ runner.os }}-buildx-${{ github.sha }}
+        restore-keys: |
+          ${{ runner.os }}-buildx-
+
+    - name: Build, tag, and push image to Amazon ECR with Buildx
+      id: build-image
+      env:
+        ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+        IMAGE_TAG: sha-${{ github.sha }}
+      run: |
+        docker buildx create --use
+        docker buildx build --platform linux/amd64 --tag $ECR_REGISTRY/${{ inputs.service }}:$IMAGE_TAG \
+        --cache-from type=registry,ref=$ECR_REGISTRY/${{ inputs.service }}:cache \
+        --cache-to mode=max,image-manifest=true,oci-mediatypes=true,type=registry,ref=$ECR_REGISTRY/${{ inputs.service }}:cache \
+        --push .
+        echo "image=$ECR_REGISTRY/${{ inputs.service }}:$IMAGE_TAG" >> $GITHUB_ENV
+      shell: bash
+
+    - name: Fill in the new image ID in the Amazon ECS task definition
+      id: task-def
+      uses: aws-actions/amazon-ecs-render-task-definition@v1
+      with:
+        task-definition: ${{ github.workspace }}/.aws/task-definition.json
+        container-name: ${{ inputs.service }}-container
+        image: ${{ env.image }}
+
+    - name: Deploy Amazon ECS task definition
+      uses: aws-actions/amazon-ecs-deploy-task-definition@v1
+      with:
+        task-definition: ${{ steps.task-def.outputs.task-definition }}
+        service: ${{ inputs.service }}
+        cluster: ${{ inputs.ecs_cluster }}
+        wait-for-service-stability: true
