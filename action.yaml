@@ -52,7 +52,6 @@ runs:
         # push it to ECR so that it can
         # be deployed to ECS.
         docker build --no-cache -f app/Dockerfile -t $ECR_REGISTRY/${{ inputs.service }}:$IMAGE_TAG ./super-aplicacao-de-pisos
-        docker build -t $ECR_REGISTRY/${{ inputs.service }}:$IMAGE_TAG .
         docker push $ECR_REGISTRY/${{ inputs.service }}:$IMAGE_TAG
         echo "::set-output name=image::$ECR_REGISTRY/${{ inputs.service }}:$IMAGE_TAG"
       shell: bash
