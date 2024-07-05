@@ -17,7 +17,7 @@ inputs:
   aws-access-key-id:
     description: 'Pass was access key id'
     required: true
-  aws-secret-access-key:
+  aws-secret-access-key: 
     description: 'Pass was secret access key'
     required: true
 on:
@@ -25,65 +25,62 @@ on:
     branches:
       - main
 
-jobs:
-  build_and_deploy:
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+runs:
+  using: "composite"
+  steps:
+    - name: Checkout
+      uses: actions/checkout@v4
 
-      - name: Set up Node.js
-        uses: actions/setup-node@v3
-        with:
-          node-version: '14'
+    - name: Set up Node.js
+      uses: actions/setup-node@v3
+      with:
+        node-version: '14'
 
-      - name: Install dependencies
-        run: npm install
-        working-directory: ./super-aplicacao-de-pisos
+    - name: Install dependencies
+      run: npm install
+      working-directory: ./super-aplicacao-de-pisos
 
-      - name: Build the artifact
-        run: npm run build
-        working-directory: ./super-aplicacao-de-pisos
+    - name: Build the artifact
+      run: npm run build
+      working-directory: ./super-aplicacao-de-pisos
 
-      - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@v4
-        with:
-          aws-region: ${{ inputs.aws_region }}
-          aws-access-key-id: ${{ inputs.aws-access-key-id }}
-          aws-secret-access-key: ${{ inputs.aws-secret-access-key }}
+    - name: Configure AWS credentials
+      uses: aws-actions/configure-aws-credentials@v4
+      with:
+        aws-region: ${{ inputs.aws_region }}
+        aws-access-key-id: ${{ inputs.aws-access-key-id }}
+        aws-secret-access-key: ${{ inputs.aws-secret-access-key }}
 
-      - name: Login to Amazon ECR
-        id: login-ecr
-        uses: aws-actions/amazon-ecr-login@v1
+    - name: Login to Amazon ECR
+      id: login-ecr
+      uses: aws-actions/amazon-ecr-login@v1
 
-      - name: Build, tag, and push image to Amazon ECR
-        id: build-image
-        env:
-          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
-          IMAGE_TAG: sha-${{ github.sha }}
-        run: |
-          # Copiar artefatos buildados para diretório temporário
-          mkdir -p ./temp_dist
-          cp -r ./super-aplicacao-de-pisos/dist ./temp_dist/
+    - name: Build, tag, and push image to Amazon ECR
+      id: build-image
+      env:
+        ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+        IMAGE_TAG: sha-${{ github.sha }}
+      run: |
+        # Build a docker container and
+        # push it to ECR so that it can
+        # be deployed to ECS.
+        docker build --no-cache -f app/Dockerfile -t $ECR_REGISTRY/${{ inputs.service }}:$IMAGE_TAG ./super-aplicacao-de-pisos
+        docker push $ECR_REGISTRY/${{ inputs.service }}:$IMAGE_TAG
+        echo "::set-output name=image::$ECR_REGISTRY/${{ inputs.service }}:$IMAGE_TAG"
+      shell: bash
 
-          # Build da imagem Docker
-          docker build --no-cache -f app/Dockerfile -t $ECR_REGISTRY/${{ inputs.service }}:$IMAGE_TAG ./temp_dist
-          docker push $ECR_REGISTRY/${{ inputs.service }}:$IMAGE_TAG
-          echo "::set-output name=image::$ECR_REGISTRY/${{ inputs.service }}:$IMAGE_TAG"
-        shell: bash
+    - name: Fill in the new image ID in the Amazon ECS task definition
+      id: task-def
+      uses: aws-actions/amazon-ecs-render-task-definition@v1
+      with:
+        task-definition: ${{ github.workspace }}/.aws/task-definition.json
+        container-name: ${{ inputs.service }}-container
+        image: ${{ steps.build-image.outputs.image }}
 
-      - name: Fill in the new image ID in the Amazon ECS task definition
-        id: task-def
-        uses: aws-actions/amazon-ecs-render-task-definition@v1
-        with:
-          task-definition: ${{ github.workspace }}/.aws/task-definition.json
-          container-name: ${{ inputs.service }}-container
-          image: ${{ steps.build-image.outputs.image }}
-
-      - name: Deploy Amazon ECS task definition
-        uses: aws-actions/amazon-ecs-deploy-task-definition@v1
-        with:
-          task-definition: ${{ steps.task-def.outputs.task-definition }}
-          service: ${{ inputs.service }}
-          cluster: ${{ inputs.ecs_cluster }}
-          wait-for-service-stability: true
+    - name: Deploy Amazon ECS task definition
+      uses: aws-actions/amazon-ecs-deploy-task-definition@v1
+      with:
+        task-definition: ${{ steps.task-def.outputs.task-definition }}
+        service: ${{ inputs.service }}
+        cluster: ${{ inputs.ecs_cluster }}
+        wait-for-service-stability: true
