@@ -41,11 +41,6 @@ runs:
       shell: bash
       working-directory: ./super-aplicacao-de-pisos
 
-    # - name: Build the artifact
-    #   run: npm run build
-    #   shell: bash
-    #   working-directory: ./super-aplicacao-de-pisos
-
     - name: Configure AWS credentials
       uses: aws-actions/configure-aws-credentials@v4
       with:
