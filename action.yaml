@@ -38,10 +38,12 @@ runs:
 
     - name: Install dependencies
       run: npm install
+      shell: bash
       working-directory: ./super-aplicacao-de-pisos
 
     - name: Build the artifact
       run: npm run build
+      shell: bash
       working-directory: ./super-aplicacao-de-pisos
 
     - name: Configure AWS credentials
